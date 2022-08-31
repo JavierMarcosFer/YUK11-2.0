@@ -1,0 +1,19 @@
+{
+  "dependencies": {
+    "discord.js": "^14.3.0",
+    "dotenv": "^16.0.2",
+    "node.js": "^0.0.1-security"
+  },
+  "name": "yuk11",
+  "version": "0.0.1",
+  "description": "Bot created to automate The Shuffle, a weekly community art event.",
+  "main": "index.js",
+  "devDependencies": {
+    "eslint": "^8.23.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Javier Marcos",
+  "license": "ISC"
+}
