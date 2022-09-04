@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const CronJob = require('cron').CronJob;
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const gspread = require('./spreadsheet-functions.js');
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -36,6 +37,9 @@ for (const file of eventFiles) {
 	}
 }
 
+// Set time zone
+process.env.TZ = 'US/Pacific';
+
 // Schedule weekly shuffle
 const job = new CronJob(
 	'0 0 12 * * 3',
@@ -51,3 +55,22 @@ const job = new CronJob(
 const token = process.env.BOT_TOKEN;
 discordClient.login(token);
 job.start();
+
+// TODO not clean to have this separated from ready event- gotta work it out eventually.
+discordClient.once('ready', () => {
+	// Set status
+	(async () => {
+		// Generating google sheet client
+		const googleSheetClient = await gspread.getGoogleSheetClient();
+		const sheetId = process.env.SPREADSHEET_ID;
+		const sheetName = process.env.SHEET_NAME;
+		const spreadData = await gspread.getSubmittersAndIllustrators(googleSheetClient, sheetId, sheetName);
+		const entrantNo = spreadData.submitters.length - spreadData.illustrators.length;
+		discordClient.user.setPresence({
+			activities: [{
+				name: `${entrantNo} people for next shuffle`,
+			}],
+			status: 'online',
+		});
+	})();
+});

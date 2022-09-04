@@ -1,28 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { google } = require('googleapis');
-const gspread = require('../spreadsheet-functions.js')
-
-async function getGoogleSheetClient() {
-	const auth = new google.auth.GoogleAuth({
-		keyFile: './credentials.json',
-		scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-	});
-	const authClient = await auth.getClient();
-	return google.sheets({
-		version: 'v4',
-		auth: authClient,
-	});
-}
-
-async function readGoogleSheetRows(googleSheetClient, sheetId, tabName, range) {
-	const res = await googleSheetClient.spreadsheets.values.get({
-		spreadsheetId: sheetId,
-		range: `${tabName}!${range}`,
-		majorDimension: 'ROWS',
-	});
-
-	return res.data.values;
-}
+const shuffle = require('../shuffle-functions.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -44,15 +21,8 @@ module.exports = {
 				.setRequired(false),
 		),
 	async execute(interaction) {
-		const spreadsheetId = process.env.SPREADSHEET_ID;
-		const sheetName = process.env.SHEET_NAME;
-
-		// Generating google sheet client
-		const googleSheetClient = await gspread.getGoogleSheetClient();
-
-		const data = await gspread.readGoogleSheetColumns(googleSheetClient, spreadsheetId, sheetName, 'A:H');
-		console.log(data);
-		
-		await interaction.reply('Sad!');
+		await interaction.deferReply();
+		shuffle.addSubmission(interaction, interaction.user.id);
+		return;
 	},
 };

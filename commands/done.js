@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const shuffle = require('../shuffle-functions.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -15,6 +16,8 @@ module.exports = {
 				.setRequired(false),
 		),
 	async execute(interaction) {
-		await interaction.reply('It\'s ovah!');
+		await interaction.deferReply();
+
+		shuffle.finishSubmission(interaction, interaction.user.id);
 	},
 };
