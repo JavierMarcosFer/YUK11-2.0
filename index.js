@@ -74,5 +74,6 @@ discordClient.once('ready', () => {
 			}],
 			status: 'online',
 		});
+		console.log('status changed!');
 	})();
 });
