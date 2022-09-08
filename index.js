@@ -4,6 +4,8 @@ const CronJob = require('cron').CronJob;
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const gspread = require('./spreadsheet-functions.js');
 const dotenv = require('dotenv');
+// eslint-disable-next-line no-unused-vars
+const keep_alive = require('./keep-alive.js');
 dotenv.config();
 
 // Create a new client instance

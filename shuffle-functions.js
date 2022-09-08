@@ -1,4 +1,8 @@
 const gspread = require('./spreadsheet-functions.js');
+const { EmbedBuilder } = require('discord.js');
+
+// TODO get return codes for these functions
+// Let the command itself handle each case
 
 // Returns URL of image attachment.
 // Returns 1 if function call did not include an attachment.
@@ -67,9 +71,22 @@ function setStatus(discordClient, entrantNo) {
 	});
 }
 
+function buildCard(interaction, characterName, referenceURL) {
+	const cardEmbed = new EmbedBuilder()
+		.setColor(0xff92b8)
+		.setTitle(characterName)
+		.setAuthor({
+			name: 'Submitted by ' + interaction.user.tag,
+			iconURL: interaction.user.avatarURL(),
+		})
+		.setImage(referenceURL);
+	return cardEmbed;
+}
+
 // Enter a submission into the shuffle
 // This function assumes that a name has been passed and checks
 // if a valid attachment image or link has been passed
+// If an user was added, update status afterwards
 async function addSubmission(interaction, userID) {
 	// Get character name
 	const characterName = interaction.options.getString('name');
@@ -107,6 +124,8 @@ async function addSubmission(interaction, userID) {
 				userID,
 				characterName,
 				attachmentURL,
+				'',
+				'',
 			]];
 			await gspread.updateGoogleSheetRow(googleSheetClient, sheetId, sheetName, range, newRow);
 
@@ -132,10 +151,57 @@ async function addSubmission(interaction, userID) {
 	const entrantNo = data.submitterID.length - data.illustratorID.length + 1;
 	setStatus(interaction.client, entrantNo);
 
-	await interaction.editReply('Entry created!');
+	const card = buildCard(interaction, characterName, attachmentURL);
+	await interaction.editReply({ content: `Entry added! ${characterName} has entered the shuffle!`, embeds: [card] });
 	return;
 }
 
+async function addReference(interaction, userID) {
+	// Check if command contains an image
+	let attachmentURL = await getImage(interaction);
+	if (attachmentURL == 1) {
+		// Check if command contains a link to an image
+		attachmentURL = await getLinkToImage(interaction);
+		if (attachmentURL == 1) {
+			// Interaction contains neither a link nor an image.
+			console.log('None');
+			await interaction.editReply('You gotta give me a reference, ya silly!');
+			return;
+		}
+	}
+	// A passed image or reference were invalid and error message has been sent
+	if (attachmentURL == 2) { return; }
+
+	// Generating google sheet client
+	const googleSheetClient = await gspread.getGoogleSheetClient();
+
+	// Fetch database
+	const sheetId = process.env.SPREADSHEET_ID;
+	const sheetName = process.env.SHEET_NAME;
+	const data = await gspread.readGoogleSheetColumns(googleSheetClient, sheetId, sheetName, 'A:K');
+
+	// Check if a submission already exists
+	for (let i = data.illustratorID.length; i < data.submitterID.length; i++) {
+		if (data.submitterID[i] == userID && typeof data.illustratorID[i] == 'undefined') {
+			// Entry exists, update submission
+			const range = `G${i + 1}`;
+			const newRow = [[
+				attachmentURL,
+			]];
+			await gspread.updateGoogleSheetRow(googleSheetClient, sheetId, sheetName, range, newRow);
+
+			await interaction.editReply('Gotcha, I\'ll pass this along as an additional reference!');
+			return;
+		}
+	}
+
+	// Not in the shuffle
+	await interaction.editReply('Did you submit your character first? Ya gotta use **/sffl** for that!');
+	return;
+}
+
+// Turn in a finished prompt
+// This function checks if a valid attachment image or link has been passed
 async function finishSubmission(interaction, userID) {
 	// Check if command contains an image
 	let attachmentURL = await getAttachment(interaction);
@@ -175,6 +241,8 @@ async function finishSubmission(interaction, userID) {
 	return;
 }
 
+// Remove a submission from an upcoming shuffle
+// Updates status afterwards
 async function cancelSubmission(interaction, userID) {
 	// Generating google sheet client
 	const googleSheetClient = await gspread.getGoogleSheetClient();
@@ -192,7 +260,7 @@ async function cancelSubmission(interaction, userID) {
 			await interaction.editReply('Very well, I\'ve removed your submission... Hope to see you again soon!');
 
 			// Update status
-			const entrantNo = data.submitterID.length - data.illustratorID.length + 1;
+			const entrantNo = data.submitterID.length - data.illustratorID.length - 1;
 			setStatus(interaction.client, entrantNo);
 			return;
 		}
@@ -203,9 +271,51 @@ async function cancelSubmission(interaction, userID) {
 	return;
 }
 
+// Starts the shuffle
+// Return 0 on success
+// Returns 1 if it has no participants
+// Returns 2 if some other error happened
+async function startShuffle() {
+	// Generating google sheet client
+	const googleSheetClient = await gspread.getGoogleSheetClient();
+
+	// Fetch database
+	const sheetId = process.env.SPREADSHEET_ID;
+	const sheetName = process.env.SHEET_NAME;
+	const data = await gspread.readGoogleSheetColumns(googleSheetClient, sheetId, sheetName, 'A:K');
+
+	// List of UserIDs
+	const participants = ['cake']; // data.illustratorID data.submitterID
+
+	// Check if no participants
+	if (participants.length < 0) {
+		return 1;
+	}
+
+	// Build list of restricted partners
+	const protectionLevel = Math.min(process.env.REPEAT_PROTECTION_LEVEL, participants.length);
+	const restrictions = matchParticipants(participants, data, protectionLevel);
+}
+
+// Builds the list of restricted partners for each entrant
+function matchParticipants(participants, spreadsheetData, startRepeatProtection) {
+	// Start at default protection level- loosen up as needed until a possible configuration is found
+
+	for (let repeatProtection = startRepeatProtection; repeatProtection > 0; repeatProtection--) {
+		const restrictions = new Array(participants.length);
+		for (let i = 0; i < participants.length; i++) {
+			restrictions[i] = getPastMatches(participants[i], spreadsheetData, repeatProtection);
+		}
+	}
+
+}
+
+
+
 module.exports.getImageAttachment = getImage;
 module.exports.getLinkToImage = getLinkToImage;
 module.exports.setStatus = setStatus;
 module.exports.addSubmission = addSubmission;
 module.exports.finishSubmission = finishSubmission;
 module.exports.cancelSubmission = cancelSubmission;
+module.exports.addReference = addReference;
