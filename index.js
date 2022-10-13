@@ -1,5 +1,6 @@
 const fs = require('node:fs');
-const keepAlive = require('./keep-alive.js')
+// eslint-disable-next-line no-unused-vars
+const keepAlive = require('./keep-alive.js');
 const path = require('node:path');
 const CronJob = require('cron').CronJob;
 const { Client, GatewayIntentBits, Collection } = require('discord.js');

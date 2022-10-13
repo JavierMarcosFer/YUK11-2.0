@@ -7,7 +7,7 @@ module.exports = {
 		.setDescription('Manually start the weekly shuffle.'),
 	async execute(interaction) {
 		await interaction.deferReply();
-		shuffle.addSubmission(interaction);
+		shuffle.startShuffle();
 		return;
 	},
 };

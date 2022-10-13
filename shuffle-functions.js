@@ -284,33 +284,31 @@ async function startShuffle() {
 	const sheetName = process.env.SHEET_NAME;
 	const data = await gspread.readGoogleSheetColumns(googleSheetClient, sheetId, sheetName, 'A:K');
 
-	// List of UserIDs
-	const participants = ['cake']; // data.illustratorID data.submitterID
-
-	// Check if no participants
-	if (participants.length < 0) {
+	// Check if too few participants
+	if ((data.submitterID.length - data.illustratorID.length) < 2) {
 		return 1;
 	}
 
-	// Build list of restricted partners
-	const protectionLevel = Math.min(process.env.REPEAT_PROTECTION_LEVEL, participants.length);
-	const restrictions = matchParticipants(participants, data, protectionLevel);
+	// Build list of participants and potential restrictions
+	const participants = getParticipants(data, process.env.REPEAT_PROTECTION_LEVEL);
+	console.log(participants);
 }
 
-// Builds the list of restricted partners for each entrant
-function matchParticipants(participants, spreadsheetData, startRepeatProtection) {
-	// Start at default protection level- loosen up as needed until a possible configuration is found
+async function getParticipants(spreadsheetData, startRepeatProtection) {
+	const lastShuffleNo = spreadsheetData.shuffleNo[spreadsheetData.shuffleNo.length - 1];
+	const participants = spreadsheetData.submitterID.slice(spreadsheetData.illustratorID.length);
+	const restrictions = [];
 
-	for (let repeatProtection = startRepeatProtection; repeatProtection > 0; repeatProtection--) {
-		const restrictions = new Array(participants.length);
-		for (let i = 0; i < participants.length; i++) {
-			restrictions[i] = getPastMatches(participants[i], spreadsheetData, repeatProtection);
+	participants.forEach(entry => {
+		const temp = [];
+		for (let i = spreadsheetData.illustratorID.length; spreadsheetData.shuffleNo[i] > lastShuffleNo - startRepeatProtection; i--) {
+			if (spreadsheetData.illustratorID[i] == entry) {
+				temp[i].push(spreadsheetData.submitterID);
+			}
 		}
-	}
-
+		restrictions.push(temp);
+	});
 }
-
-
 
 module.exports.getImageAttachment = getImage;
 module.exports.getLinkToImage = getLinkToImage;
@@ -319,3 +317,4 @@ module.exports.addSubmission = addSubmission;
 module.exports.finishSubmission = finishSubmission;
 module.exports.cancelSubmission = cancelSubmission;
 module.exports.addReference = addReference;
+module.exports.startShuffle = startShuffle;
