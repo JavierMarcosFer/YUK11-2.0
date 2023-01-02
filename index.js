@@ -1,12 +1,15 @@
-const fs = require('node:fs');
 // eslint-disable-next-line no-unused-vars
 const keepAlive = require('./keep-alive.js');
-const path = require('node:path');
-const CronJob = require('cron').CronJob;
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const path = require('node:path');
+const fs = require('node:fs');
 const gspread = require('./spreadsheet-functions.js');
+const CronJob = require('cron').CronJob;
 const dotenv = require('dotenv');
+const { startShuffle } = require('./shuffle-functions.js');
+const moment = require('moment-timezone');
 dotenv.config();
+
 
 // Create a new client instance
 const discordClient = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -47,11 +50,15 @@ const job = new CronJob(
 	'0 0 12 * * 3',
 	function() {
 		console.log('Starting shuffle...');
+		startShuffle(discordClient);
 	},
 	null,
 	true,
 	'US/Pacific',
 );
+
+// Set moment timezone
+moment.tz.setDefault('America/Los_Angeles');
 
 // Login to Discord with your client's token
 const token = process.env.BOT_TOKEN;
@@ -60,9 +67,8 @@ job.start();
 
 // TODO not clean to have this separated from ready event- gotta work it out eventually.
 discordClient.once('ready', () => {
-	// Set status
 	(async () => {
-		// Generating google sheet client
+		// Generating google sheet client and set status
 		const googleSheetClient = await gspread.getGoogleSheetClient();
 		const sheetId = process.env.SPREADSHEET_ID;
 		const sheetName = process.env.SHEET_NAME;

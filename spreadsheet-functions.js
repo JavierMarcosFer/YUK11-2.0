@@ -40,7 +40,7 @@ async function readGoogleSheetColumns(googleSheetClient, sheetId, tabName, range
 		characterName: res.data.values[4],
 		referenceURL1: res.data.values[5],
 		referenceURL2: res.data.values[6],
-		referenceURL3: res.data.values[7],
+		note: res.data.values[7],
 		illustratorName: res.data.values[8],
 		illustratorID: res.data.values[9],
 		drawingURL: res.data.values[10],
@@ -72,6 +72,19 @@ async function updateGoogleSheetRow(googleSheetClient, sheetId, tabName, range, 
 		resource: {
 			'range': `${tabName}!${range}`,
 			'majorDimension': 'ROWS',
+			'values': data,
+		},
+	});
+}
+
+async function updateGoogleSheetColumn(googleSheetClient, sheetId, tabName, range, data) {
+	await googleSheetClient.spreadsheets.values.update({
+		spreadsheetId: sheetId,
+		range: `${tabName}!${range}`,
+		valueInputOption: 'USER_ENTERED',
+		resource: {
+			'range': `${tabName}!${range}`,
+			'majorDimension': 'COLUMNS',
 			'values': data,
 		},
 	});
@@ -146,5 +159,6 @@ module.exports.readGoogleSheetColumns = readGoogleSheetColumns;
 module.exports.appendGoogleSheet = appendGoogleSheet;
 module.exports.getSubmittersAndIllustrators = getSubmittersAndIllustrators;
 module.exports.updateGoogleSheetRow = updateGoogleSheetRow;
+module.exports.updateGoogleSheetColumn = updateGoogleSheetColumn;
 module.exports.logFinishedDrawing = logFinishedDrawing;
 module.exports.deleteRow = deleteRow;

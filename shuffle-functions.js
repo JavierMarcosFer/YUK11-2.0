@@ -1,5 +1,7 @@
+const moment = require('moment-timezone');
 const gspread = require('./spreadsheet-functions.js');
-const { EmbedBuilder } = require('discord.js');
+// eslint-disable-next-line no-unused-vars
+const { EmbedBuilder, SelectMenuOptionBuilder } = require('discord.js');
 
 // TODO get return codes for these functions
 // Let the command itself handle each case
@@ -275,7 +277,7 @@ async function cancelSubmission(interaction, userID) {
 // Return 0 on success
 // Returns 1 if it has no participants
 // Returns 2 if some other error happened
-async function startShuffle() {
+async function startShuffle(discordClient) {
 	// Generating google sheet client
 	const googleSheetClient = await gspread.getGoogleSheetClient();
 
@@ -285,29 +287,198 @@ async function startShuffle() {
 	const data = await gspread.readGoogleSheetColumns(googleSheetClient, sheetId, sheetName, 'A:K');
 
 	// Check if too few participants
-	if ((data.submitterID.length - data.illustratorID.length) < 2) {
+	const participantCount = data.submitterID.length - data.illustratorID.length;
+	if (participantCount < 2) {
 		return 1;
 	}
 
 	// Build list of participants and potential restrictions
-	const participants = getParticipants(data, process.env.REPEAT_PROTECTION_LEVEL);
-	console.log(participants);
+	const participants = await getParticipants(data, process.env.REPEAT_PROTECTION_LEVEL);
+
+	// Try to generate a list randomly
+	// TODO If randomness fails once, proceed with a more deliberate approach
+	for (let protection = process.env.REPEAT_PROTECTION_LEVEL; protection >= 0; protection--) {
+		const result = randomShuffle(participants, protection, 5000);
+		if (result != 1) {
+			// Write down results to table
+			const writeData = buildShuffleWriteData(data, participants);
+			const writeRange = `I${data.submitterID.length - participantCount + 1}:J${data.submitterID.length}`;
+			await gspread.updateGoogleSheetColumn(googleSheetClient, sheetId, sheetName, writeRange, writeData);
+
+			// Reach out to participants
+			await messageParticipants(discordClient, data, writeData);
+			// Change status
+			await setStatus(discordClient, 0);
+			// Change topic
+			await updateShuffleTopic(discordClient);
+
+			return 0;
+		}
+	}
+
+	console.log('aw fuck');
+	return 1;
+
 }
 
+// Builds a list of the participants for this shuffle and their restrictions
 async function getParticipants(spreadsheetData, startRepeatProtection) {
 	const lastShuffleNo = spreadsheetData.shuffleNo[spreadsheetData.shuffleNo.length - 1];
-	const participants = spreadsheetData.submitterID.slice(spreadsheetData.illustratorID.length);
+	const entries = spreadsheetData.submitterID.slice(spreadsheetData.illustratorID.length);
+	const names = spreadsheetData.submitterName.slice(spreadsheetData.illustratorID.length);
 	const restrictions = [];
 
-	participants.forEach(entry => {
+	entries.forEach(entry => {
 		const temp = [];
-		for (let i = spreadsheetData.illustratorID.length; spreadsheetData.shuffleNo[i] > lastShuffleNo - startRepeatProtection; i--) {
+		for (let i = spreadsheetData.illustratorID.length - 1; spreadsheetData.shuffleNo[i] >= lastShuffleNo - startRepeatProtection; i--) {
 			if (spreadsheetData.illustratorID[i] == entry) {
-				temp[i].push(spreadsheetData.submitterID);
+				temp.push(spreadsheetData.submitterID[i]);
 			}
 		}
 		restrictions.push(temp);
 	});
+
+	return {
+		entries: entries,
+		names: names,
+		restrictions: restrictions,
+	};
+}
+
+// Shuffle entrants by random brute force.
+// Shuffles participants and their respective restrictions randomly, then checks if the list is valid.
+// If the list invalid, tries shuffling again, up to the number of times specified by genLimit.
+// Returns 1 upon failing to generate a valid shuffle
+// Otherwise returns a shuffled list of participants
+function randomShuffle(participants, repeatProtection, genLimit) {
+	console.log('randomShuffle: Generating list with protection level ', repeatProtection);
+
+	// Generate list
+	for (let n = 0; n < genLimit; n++) {
+		// While there remain elements to shuffle.
+		for (let i = participants.entries.length - 1; i > 0; i--) {
+			// Pick a remaining element.
+			const randomIndex = Math.floor(Math.random() * (i + 1));
+
+			// And swap it with the current element.
+			let t = participants.entries[i];
+			participants.entries[i] = participants.entries[randomIndex];
+			participants.entries[randomIndex] = t;
+
+			t = participants.names[i];
+			participants.names[i] = participants.names[randomIndex];
+			participants.names[randomIndex] = t;
+
+			t = participants.restrictions[i];
+			participants.restrictions[i] = participants.restrictions[randomIndex];
+			participants.restrictions[randomIndex] = t;
+		}
+
+		// Check validity
+		if (isShuffleValid) {
+			return participants;
+		}
+	}
+
+	console.log('randomShuffle: Failed to generate valid shuffle');
+	return 1;
+}
+
+function buildShuffleWriteData(data, participants) {
+	const namesColumn = [];
+	const idsColumn = [];
+	for (let i = data.illustratorID.length; i < data.submitterID.length; i++) {
+		// Find entrant in participants list
+		const submitterIndex = participants.entries.indexOf(data.submitterID[i]);
+
+		// Assign illustrator for this submission
+		// If last on the list, loop back to start
+		if (submitterIndex == participants.entries.length - 1) {
+			idsColumn.push(participants.entries[0]);
+			namesColumn.push(participants.names[0]);
+		}
+		else {
+			idsColumn.push(participants.entries[submitterIndex + 1]);
+			namesColumn.push(participants.names[submitterIndex + 1]);
+		}
+	}
+
+	return [
+		namesColumn,
+		idsColumn,
+	];
+}
+
+// Check if the passed list is valid
+// returns true if the list if valid
+function isShuffleValid(participants, repeatProtection) {
+	for (let i = 0; i < participants.entries.length - 1; i++) {
+		// Check if the adjacent entrant is restricted
+		const res = participants.restrictions[i].indexOf(participants.entries[i + 1]);
+		if (res >= 0 && res < repeatProtection) {
+			// If yes, list is invalid
+			return false;
+		}
+	}
+	// Check last entrant
+	const res = participants.restrictions[0].indexOf(participants.entries[participants.entries.length]);
+	if (res >= 0 && res < repeatProtection) {
+		// If yes, list is invalid
+		return false;
+	}
+
+	// If you reach the end, list is valid
+	return true;
+}
+
+async function messageParticipants(discordClient, data, writeData) {
+	const startIndex = data.illustratorID.length;
+	for (let i = startIndex; i < data.submitterID.length; i++) {
+		const illustratorName = writeData[0][i - startIndex].slice(0, -5);
+		const illustratorID = writeData[1][i - startIndex];
+		const submitterName = data.submitterName[i].slice(0, -5);
+		const characterName = data.characterName[i];
+		const reference1 = data.referenceURL1[i];
+		const reference2 = data.referenceURL2[i];
+		const note = data.note[i];
+
+		let message = 'Hello ' + illustratorName + ', and welcome to the shuffle!\nThis time you got ' + submitterName + '\'s character: ' + characterName + '!';
+
+		if (note != '' && note != undefined) {
+			message = message + '\n\n> ' + note;
+		}
+
+		message = message + '\n\nGood luck!';
+
+		setTimeout(function() {
+			console.log('Messaging ' + illustratorName + '.');
+		}, 500);
+
+		try {
+			const userChannel = await discordClient.users.cache.get(illustratorID);
+
+			if (reference2 != '' && reference2 != undefined) {
+				await userChannel.send({ content: message, files: [reference1, reference2] });
+			}
+			else {
+				await userChannel.send({ content: message, files: [reference1] });
+			}
+		}
+		catch (err) {
+			// TODO post error message on admin channel
+			console.log('shuffle-functions.js: messageParticiants - Couldn\'t message ' + illustratorName + '!');
+			console.log(err);
+		}
+	}
+}
+
+// Change the topic (description) for the shuffle channel to show whent he next shuffle begins
+async function updateShuffleTopic(discordClient) {
+	const shuffleChannelID = process.env.SHUFFLE_CHANNEL_ID;
+	const shuffleChannel = await discordClient.channels.cache.get(shuffleChannelID);
+	const timestamp = moment().startOf('week').add(1, 'week').add(3, 'day').add(12, 'hour').unix();
+	await shuffleChannel.setTopic('The shuffle event channel, a weekly secret santa! - Next shuffle starts in <t:' + timestamp + ':R>');
+	return;
 }
 
 module.exports.getImageAttachment = getImage;
